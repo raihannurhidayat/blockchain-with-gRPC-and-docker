@@ -1,0 +1,38 @@
+syntax = "proto3";
+
+package blockchain;
+
+service BlockchainNode {
+    // Client submits a transaction to a node
+    rpc SubmitTransaction (Transaction) returns (Ack) {}
+    
+    // Node broadcasts a new block to other nodes
+    rpc BroadcastBlock (Block) returns (Ack) {}
+    
+    // Node broadcasts a pending transaction to other nodes
+    rpc BroadcastTransaction (Transaction) returns (Ack) {}
+}
+
+message Transaction {
+    string id = 1;
+    string sender = 2;
+    string receiver = 3;
+    float amount = 4;
+    double timestamp = 5;
+}
+
+message Block {
+    int32 index = 1;
+    string previous_hash = 2;
+    double timestamp = 3;
+    repeated Transaction transactions = 4;
+    int32 nonce = 5;
+    string hash = 6;
+    string miner_id = 7;
+    int32 difficulty = 8;
+}
+
+message Ack {
+    bool success = 1;
+    string message = 2;
+}
