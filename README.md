@@ -23,10 +23,15 @@ Proyek ini mensimulasikan jaringan blockchain Proof-of-Work terdistribusi menggu
 
 ## Menjalankan Simulasi
 
-1.  **Hasilkan Konfigurasi Jaringan:**
-    Jalankan alat orkestrator untuk membuat jaringan dengan `N` node (contohnya: 3).
+1.  **Hasilkan Konfigurasi Jaringan secara paralel:**
+    Jalankan alat orkestrator untuk membuat jaringan dengan flag "--nodes" untuk menentukan jumlah node (contohnya: 3).
     ```bash
-    python tools/generate_network.py 3
+    python tools/generate_network.py parallel --nodes 3
+    ```
+    **Hasilkan Konfigurasi Jaringan secara sekuensial:**
+    Jalankan alat orkestrator untuk membuat jaringan secara sekuensial.
+    ```bash
+    python tools/generate_network.py sequential
     ```
 
 2.  **Mulai Jaringan:**
