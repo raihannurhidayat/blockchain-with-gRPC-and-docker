@@ -3,91 +3,109 @@ import matplotlib.pyplot as plt
 import sys
 import os
 
-# LOG_FILE = "../logs/simulation_data.csv"
 LOG_FILE = "logs/simulation_data.csv"
 
 def analyze():
+    # 1. Cek File
     if not os.path.exists(LOG_FILE):
-        print(f"Log file {LOG_FILE} not found.")
+        print(f"File log tidak ditemukan di: {LOG_FILE}")
         return
 
-    # Check if file has header, if not, add names
-    # Our node.py writes: timestamp, node_id, event_type, details
     try:
         df = pd.read_csv(LOG_FILE, names=["Timestamp", "NodeID", "Event", "Details"])
     except Exception as e:
-        print(f"Error reading CSV: {e}")
+        print(f"Error membaca CSV: {e}")
         return
 
-    # 1. Total Duration
-    start_time = df["Timestamp"].min()
-    end_time = df["Timestamp"].max()
-    duration = end_time - start_time
-    print(f"Total Simulation Duration: {duration:.2f} seconds")
+    print(f"{'='*50}")
+    print(f"   ANALISIS PERFORMA BLOCKCHAIN (METODE ACTIVE WINDOW)")
+    print(f"{'='*50}")
 
-    # 2. Mining Performance (Blocks Mined)
+    if df.empty:
+        print("Data kosong.")
+        return
+
+    # --- BAGIAN 1: DATA MENTAH & MINING ---
+    start_sim = df["Timestamp"].min()
+    end_sim = df["Timestamp"].max()
+    total_duration = end_sim - start_sim
+    
     mined_blocks = df[df["Event"] == "Block Mined"]
     total_blocks = len(mined_blocks)
-    print(f"Total Blocks Mined: {total_blocks}")
     
-    # 3. Thoughput (TPS)
-    # We count "Transaction Received" or "Block Mined"? 
-    # Usually TPS is confirmed transactions.
-    # We can infer tx count from details? Or just use block count * avg tx?
-    # Our node.py logs "Block Mined" with hash. It doesn't explicitly log tx count in block summary.
-    # We'll estimate or if we logged tx count. 
-    # For now, let's use Block Throughput = Blocks / Second.
-    bps = total_blocks / duration if duration > 0 else 0
-    print(f"Block Throughput: {bps:.4f} blocks/sec")
+    # Block Throughput masih oke pakai durasi total (karena mining jalan terus)
+    bps = total_blocks / total_duration if total_duration > 0 else 0
 
-    # 4. Latency (Propagation)
-    # Match "Block Mined" with "Block Received" for same hash?
-    # Details format: "Block {index} Hash {hash}"
-    # We need to extract Hash.
-    
-    # Extract Hash
-    df["Hash"] = df["Details"].apply(lambda x: x.split("Hash ")[1] if "HashVal" in x or "Hash " in x else None)
-    
+    print(f"Total Durasi Simulasi (Uptime) : {total_duration:.2f} detik")
+    print(f"Total Blok Terbentuk           : {total_blocks}")
+    print(f"Block Throughput               : {bps:.4f} blocks/sec")
+    print(f"{'-'*50}")
+
+    # --- BAGIAN 2: TRANSAKSI & TPS (LOGIKA BARU) ---
+    # Filter hanya baris yang berhubungan dengan Transaksi
+    tx_logs = df[df["Event"].str.contains("Transaction", case=False, na=False)]
+
+    if not tx_logs.empty:
+        # A. Hitung Jumlah Transaksi Unik (Mengatasi masalah "30 vs 10")
+        # Kita hitung berdasarkan isi 'Details' yang unik per transaksi
+        unique_tx_count = tx_logs["Details"].nunique()
+        
+        # B. Tentukan 'Active Window' (Hanya saat transaksi diproses)
+        tx_start_time = tx_logs["Timestamp"].min()
+        tx_end_time = tx_logs["Timestamp"].max()
+        
+        # Durasi pengerjaan transaksi saja
+        tx_duration = tx_end_time - tx_start_time
+        
+        # Penanganan jika durasi terlalu cepat (0.0 detik) agar tidak error pembagian
+        if tx_duration <= 0.0001:
+            tx_duration = 1.0 # Anggap minimal 1 detik untuk normalisasi
+
+        # C. Hitung TPS Sebenarnya
+        real_tps = unique_tx_count / tx_duration
+
+        print(f"Jendela Waktu Transaksi (Active) : {tx_duration:.4f} detik")
+        print(f"Jumlah Transaksi Unik            : {unique_tx_count}")
+        print(f"Transaction Throughput (TPS)     : {real_tps:.4f} TPS")
+        print(f"(Dihitung dari {unique_tx_count} tx dibagi {tx_duration:.2f} detik)")
+    else:
+        print("Tidak ada data transaksi ditemukan (Pastikan client.py dijalankan!)")
+
+    print(f"{'-'*50}")
+
+    # --- BAGIAN 3: LATENCY (PROPAGASI) ---
+    # Logika pencocokan Hash Blok
+    df["Hash"] = df["Details"].apply(lambda x: x.split("Hash ")[1] if isinstance(x, str) and "Hash " in x else None)
     mined_events = df[df["Event"] == "Block Mined"].dropna(subset=["Hash"])
     received_events = df[df["Event"] == "Block Received"].dropna(subset=["Hash"])
     
     latencies = []
-    
     for _, mined in mined_events.iterrows():
         block_hash = mined["Hash"]
         mine_time = mined["Timestamp"]
-        
-        # Find reception of this block
+        # Cari waktu terima di node lain
         receptions = received_events[received_events["Hash"] == block_hash]
         for _, rx in receptions.iterrows():
             latency = rx["Timestamp"] - mine_time
-            if latency > 0: # Clock skew might make it negative in real distrib, but here local docker
-                latencies.append(latency)
+            if latency > 0: latencies.append(latency)
                 
     avg_latency = sum(latencies) / len(latencies) if latencies else 0
-    print(f"Average Block Propagation Latency: {avg_latency:.6f} seconds")
+    print(f"Rata-rata Latency Propagasi      : {avg_latency:.6f} detik")
+    print(f"{'='*50}")
 
-    # 5. Speedup and Efficiency (Requires Baseline)
-    # We hardcode a baseline or ask user?
-    # Let's assume baseline T_seq for X blocks ~ X * (Difficulty_Constant)
-    # For reporting, we generate a plot with dummy comparison if only 1 run, 
-    # or just report current performance.
-    
-    # Generate Plots
-    plt.figure(figsize=(10, 6))
-    
-    # Plot 1: Blocks Mined over Time
-    mined_blocks = mined_blocks.sort_values("Timestamp")
-    mined_blocks["Elapsed"] = mined_blocks["Timestamp"] - start_time
-    mined_blocks["BlockCount"] = range(1, len(mined_blocks) + 1)
-    
-    plt.plot(mined_blocks["Elapsed"], mined_blocks["BlockCount"], marker='o')
-    plt.xlabel("Time (s)")
-    plt.ylabel("Blocks Mined")
-    plt.title("Blockchain Growth")
-    plt.grid(True)
-    plt.savefig("logs/growth_plot.png")
-    print("Plot saved to logs/growth_plot.png")
+    # Plotting (Opsional)
+    if not mined_blocks.empty:
+        plt.figure(figsize=(10, 6))
+        mined_blocks = mined_blocks.sort_values("Timestamp")
+        mined_blocks["Elapsed"] = mined_blocks["Timestamp"] - start_sim
+        mined_blocks["BlockCount"] = range(1, len(mined_blocks) + 1)
+        plt.plot(mined_blocks["Elapsed"], mined_blocks["BlockCount"])
+        plt.xlabel("Waktu (s)")
+        plt.ylabel("Jumlah Blok")
+        plt.title("Pertumbuhan Blockchain")
+        plt.grid(True)
+        plt.savefig("logs/growth_plot.png")
+        print("Grafik disimpan ke logs/growth_plot.png")
 
 if __name__ == "__main__":
     analyze()
