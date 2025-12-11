@@ -3,13 +3,12 @@ import sys
 
 def generate_compose(num_nodes):
     services = ""
-    node_ports = []
-    
-    # We use internal docker dns names: node_1, node_2...
-    # All nodes listen on 50051 inside container
-    
-    peer_list = ",".join([f"node_{i}:50051" for i in range(1, num_nodes + 1)])
-    
+    if num_nodes < 1:
+        print("Error: Jumlah node minimal 1.")
+        sys.exit(1)
+
+    print(f"[*] Menyiapkan konfigurasi untuk {num_nodes} node...")
+
     for i in range(1, num_nodes + 1):
         node_id = f"node_{i}"
         # Peers for this node: all others
@@ -42,15 +41,32 @@ networks:
     with open("docker-compose.yml", "w") as f:
         f.write(compose_content)
     
-    print(f"Generated docker-compose.yml for {num_nodes} nodes.")
+    print(f"[SUCCESS] Berhasil membuat docker-compose.yml dengan {num_nodes} node.")
+    print(f"          Mode: {'SEQUENTIAL' if num_nodes == 1 else 'PARALLEL'}")
+
+
+def main():
+    parser = argparse.ArgumentParser(description="Generator Network Blockchain untuk Simulasi")
+    subparsers = parser.add_subparsers(dest='command', help='Pilih mode operasi', required=True)
+
+    # Command: python tools/generate_network.py sequential
+    parser_seq = subparsers.add_parser('sequential', help='Mode Sekuensial (Hanya 1 Node)')
+
+    # Command: python tools/generate_network.py parallel --nodes 4
+    parser_par = subparsers.add_parser('parallel', help='Mode Paralel (Multi Node)')
+    parser_par.add_argument('--nodes', type=int, default=2, help='Jumlah node (default: 2)')
+
+    args = parser.parse_args()
+
+    if args.command == 'sequential':
+        generate_compose(1)
+    elif args.command == 'parallel':
+        if args.nodes < 2:
+            print("Warning: Mode parallel biasanya membutuhkan minimal 2 node.")
+            confirm = input("Lanjut dengan 1 node? (y/n): ")
+            if confirm.lower() != 'y':
+                sys.exit(0)
+        generate_compose(args.nodes)
 
 if __name__ == "__main__":
-    if len(sys.argv) != 2:
-        print("Usage: python generate_network.py <num_nodes>")
-        sys.exit(1)
-    
-    try:
-        n = int(sys.argv[1])
-        generate_compose(n)
-    except ValueError:
-        print("Error: Number of nodes must be an integer.")
+    main()

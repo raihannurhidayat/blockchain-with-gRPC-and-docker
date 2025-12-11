@@ -2,8 +2,10 @@ import pandas as pd
 import matplotlib.pyplot as plt
 import sys
 import os
+import json  # <--- Tambahan untuk fitur history
 
 LOG_FILE = "logs/simulation_data.csv"
+HISTORY_FILE = "logs/benchmark_history.json" # <--- File database history
 
 def analyze():
     # 1. Cek File
@@ -25,6 +27,10 @@ def analyze():
         print("Data kosong.")
         return
 
+    # Hitung Jumlah Node Aktif (Penting untuk Key Database)
+    active_nodes = df["NodeID"].nunique()
+    print(f"Jumlah Node Terdeteksi       : {active_nodes} Node")
+
     # --- BAGIAN 1: DATA MENTAH & MINING ---
     start_sim = df["Timestamp"].min()
     end_sim = df["Timestamp"].max()
@@ -33,7 +39,7 @@ def analyze():
     mined_blocks = df[df["Event"] == "Block Mined"]
     total_blocks = len(mined_blocks)
     
-    # Block Throughput masih oke pakai durasi total (karena mining jalan terus)
+    # Block Throughput
     bps = total_blocks / total_duration if total_duration > 0 else 0
 
     print(f"Total Durasi Simulasi (Uptime) : {total_duration:.2f} detik")
@@ -42,24 +48,27 @@ def analyze():
     print(f"{'-'*50}")
 
     # --- BAGIAN 2: TRANSAKSI & TPS (LOGIKA BARU) ---
-    # Filter hanya baris yang berhubungan dengan Transaksi
     tx_logs = df[df["Event"].str.contains("Transaction", case=False, na=False)]
+    
+    # Inisialisasi variabel default agar tidak error jika kosong
+    real_tps = 0
+    tx_duration = 0
+    unique_tx_count = 0
 
     if not tx_logs.empty:
-        # A. Hitung Jumlah Transaksi Unik (Mengatasi masalah "30 vs 10")
-        # Kita hitung berdasarkan isi 'Details' yang unik per transaksi
+        # A. Hitung Jumlah Transaksi Unik
         unique_tx_count = tx_logs["Details"].nunique()
         
-        # B. Tentukan 'Active Window' (Hanya saat transaksi diproses)
+        # B. Tentukan 'Active Window'
         tx_start_time = tx_logs["Timestamp"].min()
         tx_end_time = tx_logs["Timestamp"].max()
         
         # Durasi pengerjaan transaksi saja
         tx_duration = tx_end_time - tx_start_time
         
-        # Penanganan jika durasi terlalu cepat (0.0 detik) agar tidak error pembagian
+        # Safety check
         if tx_duration <= 0.0001:
-            tx_duration = 1.0 # Anggap minimal 1 detik untuk normalisasi
+            tx_duration = 1.0 
 
         # C. Hitung TPS Sebenarnya
         real_tps = unique_tx_count / tx_duration
@@ -74,7 +83,6 @@ def analyze():
     print(f"{'-'*50}")
 
     # --- BAGIAN 3: LATENCY (PROPAGASI) ---
-    # Logika pencocokan Hash Blok
     df["Hash"] = df["Details"].apply(lambda x: x.split("Hash ")[1] if isinstance(x, str) and "Hash " in x else None)
     mined_events = df[df["Event"] == "Block Mined"].dropna(subset=["Hash"])
     received_events = df[df["Event"] == "Block Received"].dropna(subset=["Hash"])
@@ -83,7 +91,6 @@ def analyze():
     for _, mined in mined_events.iterrows():
         block_hash = mined["Hash"]
         mine_time = mined["Timestamp"]
-        # Cari waktu terima di node lain
         receptions = received_events[received_events["Hash"] == block_hash]
         for _, rx in receptions.iterrows():
             latency = rx["Timestamp"] - mine_time
@@ -93,7 +100,40 @@ def analyze():
     print(f"Rata-rata Latency Propagasi      : {avg_latency:.6f} detik")
     print(f"{'='*50}")
 
-    # Plotting (Opsional)
+    # --- BAGIAN 4: SIMPAN KE DATABASE JSON (FITUR BARU) ---
+    # Kita hanya menyimpan jika ada transaksi yang terjadi
+    if unique_tx_count > 0:
+        # 1. Load data lama
+        data_history = {}
+        if os.path.exists(HISTORY_FILE):
+            try:
+                with open(HISTORY_FILE, "r") as f:
+                    data_history = json.load(f)
+            except:
+                data_history = {}
+
+        # 2. Update data (Key = Jumlah Node)
+        # Ini menjamin tidak ada duplikat data untuk jumlah node yang sama.
+        node_key = str(active_nodes)
+        
+        data_history[node_key] = {
+            "nodes": int(active_nodes),
+            "duration": float(tx_duration),
+            "throughput": float(real_tps),
+            "latency": float(avg_latency),
+            "tx_count": int(unique_tx_count)
+        }
+
+        # 3. Save kembali ke file
+        with open(HISTORY_FILE, "w") as f:
+            json.dump(data_history, f, indent=4)
+            
+        print(f"[AUTO-SAVE] Data untuk {active_nodes} Node berhasil disimpan ke history.")
+        print(f"Database saat ini berisi data untuk node: {list(data_history.keys())}")
+    else:
+        print("[SKIP-SAVE] Tidak menyimpan ke history karena tidak ada transaksi.")
+
+    # --- BAGIAN 5: PLOTTING ---
     if not mined_blocks.empty:
         plt.figure(figsize=(10, 6))
         mined_blocks = mined_blocks.sort_values("Timestamp")

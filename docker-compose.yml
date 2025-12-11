@@ -7,7 +7,7 @@ services:
     environment:
       - NODE_ID=node_1
       - PORT=50051
-      - PEERS=node_2:50051,node_3:50051
+      - PEERS=node_2:50051,node_3:50051,node_4:50051
       - PYTHONUNBUFFERED=1
     volumes:
       - ./logs:/logs
@@ -20,7 +20,7 @@ services:
     environment:
       - NODE_ID=node_2
       - PORT=50051
-      - PEERS=node_1:50051,node_3:50051
+      - PEERS=node_1:50051,node_3:50051,node_4:50051
       - PYTHONUNBUFFERED=1
     volumes:
       - ./logs:/logs
@@ -33,7 +33,20 @@ services:
     environment:
       - NODE_ID=node_3
       - PORT=50051
-      - PEERS=node_1:50051,node_2:50051
+      - PEERS=node_1:50051,node_2:50051,node_4:50051
+      - PYTHONUNBUFFERED=1
+    volumes:
+      - ./logs:/logs
+    networks:
+      - blockchain-net
+
+  node_4:
+    build: .
+    container_name: node_4
+    environment:
+      - NODE_ID=node_4
+      - PORT=50051
+      - PEERS=node_1:50051,node_2:50051,node_3:50051
       - PYTHONUNBUFFERED=1
     volumes:
       - ./logs:/logs
